@@ -1,0 +1,2 @@
+ALTER TABLE public.candidates ADD COLUMN IF NOT EXISTS pipeline_stage text NOT NULL DEFAULT 'nova_candidatura';
+UPDATE public.candidates SET pipeline_stage = 'nova_candidatura' WHERE pipeline_stage IS NULL OR pipeline_stage = 'nova_candidatura';

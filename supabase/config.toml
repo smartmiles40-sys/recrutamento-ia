@@ -1,0 +1,7 @@
+project_id = "gubhgndxtsioihyiuhry"
+
+[functions.analyze-cv]
+verify_jwt = false
+
+[functions.score-candidate-responses]
+verify_jwt = false

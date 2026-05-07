@@ -1,0 +1,2 @@
+ALTER TABLE public.candidates ADD COLUMN IF NOT EXISTS lgpd_consent boolean DEFAULT false;
+ALTER TABLE public.candidates ADD COLUMN IF NOT EXISTS lgpd_consent_date timestamp with time zone DEFAULT null;
