@@ -45,43 +45,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+    let cancelled = false;
+
+    const loadRole = (userId: string) => {
+      // Deferred to next tick — calling supabase.from(...) directly inside
+      // onAuthStateChange triggers a deadlock with the auth navigator lock,
+      // which leaves `loading` stuck on true and shows an infinite spinner.
+      setTimeout(async () => {
+        try {
+          const fetchedRole = await fetchUserRole(userId);
+          if (!cancelled) setRole(fetchedRole);
+        } catch {
+          if (!cancelled) setRole(null);
+        }
+      }, 0);
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
-
-      if (nextSession?.user) {
-        try {
-          const fetchedRole = await fetchUserRole(nextSession.user.id);
-          setRole(fetchedRole);
-        } catch {
-          setRole(null);
-        }
-      } else {
-        setRole(null);
-      }
-
+      if (nextSession?.user) loadRole(nextSession.user.id);
+      else setRole(null);
       setLoading(false);
     });
 
     supabase.auth.getSession()
-      .then(async ({ data: { session: currentSession } }) => {
+      .then(({ data: { session: currentSession } }) => {
+        if (cancelled) return;
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
-
-        if (currentSession?.user) {
-          try {
-            const fetchedRole = await fetchUserRole(currentSession.user.id);
-            setRole(fetchedRole);
-          } catch {
-            setRole(null);
-          }
-        } else {
-          setRole(null);
-        }
-
+        if (currentSession?.user) loadRole(currentSession.user.id);
+        else setRole(null);
         setLoading(false);
       })
       .catch((err) => {
+        if (cancelled) return;
         console.warn("Auth session error:", err);
         clearStaleAuthStorage();
         supabase.auth.signOut().catch(() => {});
@@ -91,7 +89,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       });
 
-    return () => subscription.unsubscribe();
+    // Safety net: if anything stalls (network blocked, auth lock contention),
+    // unblock the UI after 8s instead of showing the spinner forever.
+    const safetyTimeout = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 8000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {

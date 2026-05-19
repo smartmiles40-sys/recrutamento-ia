@@ -10,7 +10,7 @@ import {
   useRestoreBlockQuestions,
 } from "@/hooks/useBlockTemplates";
 import { useCandidatesByJob } from "@/hooks/useCandidates";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Copy, Check, Plus, X, Trash2, ChevronDown, ChevronUp, Settings, RotateCcw, Library } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -45,7 +45,7 @@ export default function JobConfig() {
   const [showBlockPicker, setShowBlockPicker] = useState(false);
   const [deleteStageId, setDeleteStageId] = useState<string | null>(null);
 
-  const { data: job, isLoading } = useJob(jobId);
+  const { data: job, isLoading, isError, error, refetch } = useJob(jobId);
   const { data: stages = [] } = useJobStages(jobId);
   const { data: questions = [] } = useAllStageQuestions(jobId);
   const { data: jobCandidates = [] } = useCandidatesByJob(jobId);
@@ -71,9 +71,13 @@ export default function JobConfig() {
   const [introTitle, setIntroTitle] = useState("Sobre a Vaga");
   const [introMessage, setIntroMessage] = useState("Leia com atenção as informações abaixo antes de iniciar sua candidatura.");
   const [discTestUrl, setDiscTestUrl] = useState("");
-  const [initialized, setInitialized] = useState(false);
+  const [initializedFor, setInitializedFor] = useState<string | null>(null);
 
-  if (job && !initialized) {
+  // Sync form once per job id. Tying to job.id (not a boolean flag) lets the form
+  // re-sync when navigating between jobs, but avoids overwriting the user's edits
+  // every time the query refetches.
+  useEffect(() => {
+    if (!job || initializedFor === job.id) return;
     setTitle(job.title);
     setArea(job.area);
     setSkills(job.required_skills || []);
@@ -85,20 +89,60 @@ export default function JobConfig() {
     setIntroTitle((job as any).intro_title || "Sobre a Vaga");
     setIntroMessage((job as any).intro_message || "Leia com atenção as informações abaixo antes de iniciar sua candidatura.");
     setDiscTestUrl((job as any).disc_test_url || "");
-    setInitialized(true);
-  }
+    setInitializedFor(job.id);
+  }, [job, initializedFor]);
 
-  if (isLoading) return <AppLayout><div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">Carregando...</div></AppLayout>;
-  if (!job) return <AppLayout><div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">Vaga não encontrada.</div></AppLayout>;
-
-  const applicationLink = `${window.location.origin}/aplicar/${jobId}`;
+  const inputClass = "h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+  const applicationLink = jobId ? `${window.location.origin}/aplicar/${jobId}` : "";
 
   const handleCopyLink = () => {
+    if (!applicationLink) return;
     navigator.clipboard.writeText(applicationLink);
     setCopied(true);
     toast({ title: "Link copiado!", description: applicationLink });
     setTimeout(() => setCopied(false), 2000);
   };
+
+  // The link section depends only on jobId from the URL — render it as soon as
+  // we have the param, even while the job query is still in-flight or failed,
+  // so the recruiter can always copy the candidate link.
+  const linkSection = jobId ? (
+    <div className="mb-6 rounded-xl border border-border bg-card p-4 shadow-card">
+      <label className="mb-2 block text-sm font-semibold text-foreground">Link de Candidatura Externa</label>
+      <div className="flex items-center gap-2">
+        <input readOnly value={applicationLink} className={inputClass + " flex-1 bg-muted text-muted-foreground"} />
+        <button onClick={handleCopyLink} className="flex h-10 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-foreground hover:opacity-90">
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          {copied ? "Copiado" : "Copiar"}
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  if (isLoading) {
+    return (
+      <AppLayout>
+        <div className="mx-auto max-w-4xl">
+          {linkSection}
+          <div className="flex min-h-[30vh] items-center justify-center text-muted-foreground">Carregando configurações...</div>
+        </div>
+      </AppLayout>
+    );
+  }
+  if (isError || !job) {
+    return (
+      <AppLayout>
+        <div className="mx-auto max-w-4xl">
+          {linkSection}
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-center">
+            <p className="text-sm font-semibold text-destructive">{isError ? "Erro ao carregar a vaga" : "Vaga não encontrada"}</p>
+            {error instanceof Error && <p className="mt-1 text-xs text-muted-foreground">{error.message}</p>}
+            <button onClick={() => refetch()} className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Tentar novamente</button>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
 
   const handleSave = () => {
     updateJob.mutate({
@@ -147,8 +191,6 @@ export default function JobConfig() {
   const usedBlockIds = stages.map((s: any) => s.source_block_id).filter(Boolean);
   const availableBlocks = blockTemplates.filter(b => b.is_active);
 
-  const inputClass = "h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
-
   return (
     <AppLayout>
       <div className="mx-auto max-w-4xl">
@@ -175,17 +217,7 @@ export default function JobConfig() {
           </div>
         </div>
 
-        {/* Link */}
-        <div className="mb-6 rounded-xl border border-border bg-card p-4 shadow-card">
-          <label className="mb-2 block text-sm font-semibold text-foreground">Link de Candidatura Externa</label>
-          <div className="flex items-center gap-2">
-            <input readOnly value={applicationLink} className={inputClass + " flex-1 bg-muted text-muted-foreground"} />
-            <button onClick={handleCopyLink} className="flex h-10 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-foreground hover:opacity-90">
-              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {copied ? "Copiado" : "Copiar"}
-            </button>
-          </div>
-        </div>
+        {linkSection}
 
         <div className="space-y-6">
           {/* Intro Step Config */}
