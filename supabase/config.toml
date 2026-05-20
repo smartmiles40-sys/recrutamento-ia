@@ -1,7 +1,18 @@
 project_id = "gubhgndxtsioihyiuhry"
 
+# All AI functions are reachable from the public application form (anonymous).
+# Authorisation is enforced inside each function via assertCandidateAccess:
+# anonymous callers must reference a candidate row created within the last
+# 60 minutes; authenticated callers must own the job. See _shared/auth.ts.
 [functions.analyze-cv]
 verify_jwt = false
 
+[functions.analyze-disc]
+verify_jwt = false
+
 [functions.score-candidate-responses]
+verify_jwt = false
+
+# create-user requires an admin JWT; checks are inside the function.
+[functions.create-user]
 verify_jwt = false

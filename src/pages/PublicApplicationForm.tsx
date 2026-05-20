@@ -475,10 +475,11 @@ function PublicApplicationFormInner() {
                     />
                   ) : q.field_type === "upload" ? (
                     <FileUpload
-                      accept="*/*"
+                      accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,application/pdf,image/*"
                       label="Clique para enviar arquivo"
                       hint="Arraste ou clique para selecionar"
                       icon="file"
+                      maxSizeMB={10}
                       onChange={(f) => setQuestionFiles(p => ({ ...p, [`qfile_${q.id}`]: f }))}
                     />
                   ) : (
@@ -499,12 +500,13 @@ function PublicApplicationFormInner() {
         {currentStep?.type === "cv" && (
           <div className="space-y-4">
             <h2 className="font-display text-lg font-bold text-foreground">Currículo</h2>
-            <p className="text-sm text-muted-foreground">Envie seu currículo em PDF ou Word.</p>
+            <p className="text-sm text-muted-foreground">Envie seu currículo em PDF (máx. 5 MB).</p>
             <FileUpload
-              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept=".pdf,application/pdf"
               label="Arraste seu currículo ou clique para selecionar"
-              hint="Formatos aceitos: PDF, DOC, DOCX"
+              hint="Apenas PDF, até 5 MB"
               icon="file"
+              maxSizeMB={5}
               onChange={(file) => { setCvFile(file); setCvError(null); }}
             />
             {cvError && (
@@ -537,8 +539,9 @@ function PublicApplicationFormInner() {
             <FileUpload
               accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
               label="Envie o PDF com o resultado do DISC"
-              hint="Formatos aceitos: PDF, PNG, JPG"
+              hint="Formatos aceitos: PDF, PNG, JPG · até 5 MB"
               icon="file"
+              maxSizeMB={5}
               onChange={(file) => { setDiscFile(file); setDiscError(null); }}
             />
             {discError && (
@@ -573,10 +576,11 @@ function PublicApplicationFormInner() {
                     />
                   ) : q.field_type === "upload" ? (
                     <FileUpload
-                      accept="*/*"
+                      accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,application/pdf,image/*"
                       label="Clique para enviar arquivo"
                       hint="Arraste ou clique para selecionar"
                       icon="file"
+                      maxSizeMB={10}
                       onChange={(f) => setQuestionFiles(p => ({ ...p, [`qfile_${q.id}`]: f }))}
                     />
                   ) : q.field_type === "select" && q.options ? (
