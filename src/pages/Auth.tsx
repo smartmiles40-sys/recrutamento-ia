@@ -4,8 +4,10 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 
+type Mode = "login" | "signup" | "reset";
+
 export default function Auth() {
-  const [isLogin, setIsLogin] = useState(true);
+  const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -17,11 +19,11 @@ export default function Auth() {
     e.preventDefault();
     setLoading(true);
     try {
-      if (isLogin) {
+      if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         navigate("/");
-      } else {
+      } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -35,6 +37,16 @@ export default function Auth() {
           title: "Cadastro realizado!",
           description: "Verifique seu email para confirmar a conta.",
         });
+      } else {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/redefinir-senha`,
+        });
+        if (error) throw error;
+        toast({
+          title: "Email enviado!",
+          description: "Se houver uma conta com este email, você receberá um link para redefinir a senha.",
+        });
+        setMode("login");
       }
     } catch (err: any) {
       toast({
@@ -45,6 +57,12 @@ export default function Auth() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const titles: Record<Mode, string> = {
+    login: "Entrar",
+    signup: "Criar Conta",
+    reset: "Redefinir senha",
   };
 
   const inputClass =
@@ -66,11 +84,15 @@ export default function Auth() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-border bg-card p-6 shadow-card">
-          <h2 className="font-display text-lg font-bold text-foreground">
-            {isLogin ? "Entrar" : "Criar Conta"}
-          </h2>
+          <h2 className="font-display text-lg font-bold text-foreground">{titles[mode]}</h2>
 
-          {!isLogin && (
+          {mode === "reset" && (
+            <p className="text-sm text-muted-foreground">
+              Informe seu email e enviaremos um link para você criar uma nova senha.
+            </p>
+          )}
+
+          {mode === "signup" && (
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">Nome</label>
               <input
@@ -93,17 +115,30 @@ export default function Auth() {
             />
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Senha</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
-              required
-              minLength={6}
-            />
-          </div>
+          {mode !== "reset" && (
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="block text-sm font-medium text-foreground">Senha</label>
+                {mode === "login" && (
+                  <button
+                    type="button"
+                    onClick={() => setMode("reset")}
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    Esqueci minha senha
+                  </button>
+                )}
+              </div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={inputClass}
+                required
+                minLength={6}
+              />
+            </div>
+          )}
 
           <button
             type="submit"
@@ -111,19 +146,31 @@ export default function Auth() {
             className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isLogin ? "Entrar" : "Criar Conta"}
+            {mode === "login" ? "Entrar" : mode === "signup" ? "Criar Conta" : "Enviar link de recuperação"}
           </button>
 
-          <p className="text-center text-sm text-muted-foreground">
-            {isLogin ? "Não tem conta? " : "Já tem conta? "}
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="font-semibold text-foreground hover:underline"
-            >
-              {isLogin ? "Criar conta" : "Entrar"}
-            </button>
-          </p>
+          {mode === "reset" ? (
+            <p className="text-center text-sm text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => setMode("login")}
+                className="font-semibold text-foreground hover:underline"
+              >
+                Voltar para o login
+              </button>
+            </p>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">
+              {mode === "login" ? "Não tem conta? " : "Já tem conta? "}
+              <button
+                type="button"
+                onClick={() => setMode(mode === "login" ? "signup" : "login")}
+                className="font-semibold text-foreground hover:underline"
+              >
+                {mode === "login" ? "Criar conta" : "Entrar"}
+              </button>
+            </p>
+          )}
         </form>
       </div>
     </div>

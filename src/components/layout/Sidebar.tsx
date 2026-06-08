@@ -1,7 +1,9 @@
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, Briefcase, Users, UserCheck, UserX, LogOut, Settings } from "lucide-react";
+import { LayoutDashboard, Briefcase, Users, UserCheck, UserX, LogOut, Settings, KeyRound } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import ChangePasswordDialog from "@/components/ChangePasswordDialog";
 import logo from "@/assets/logo-horizontal-dark-teal.png";
 
 const NAV_ITEMS = [
@@ -19,6 +21,7 @@ const ADMIN_ITEMS = [
 export default function Sidebar() {
   const location = useLocation();
   const { user, role, signOut } = useAuth();
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-sidebar-border bg-sidebar">
@@ -82,6 +85,13 @@ export default function Sidebar() {
           <p className="text-[10px] text-sidebar-foreground/50 capitalize">{role || "—"}</p>
         </div>
         <button
+          onClick={() => setShowChangePassword(true)}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        >
+          <KeyRound className="h-4 w-4" />
+          Alterar senha
+        </button>
+        <button
           onClick={signOut}
           className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
         >
@@ -89,6 +99,8 @@ export default function Sidebar() {
           Sair
         </button>
       </div>
+
+      <ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} />
     </aside>
   );
 }

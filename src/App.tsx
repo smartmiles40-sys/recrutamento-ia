@@ -9,6 +9,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 
 const Auth = lazy(() => import("./pages/Auth"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Index = lazy(() => import("./pages/Index"));
 const Jobs = lazy(() => import("./pages/Jobs"));
 const Candidates = lazy(() => import("./pages/Candidates"));
@@ -49,6 +50,7 @@ const App = () => (
           <Suspense fallback={<PageFallback />}>
             <Routes>
               <Route path="/auth" element={<Auth />} />
+              <Route path="/redefinir-senha" element={<ResetPassword />} />
               <Route path="/vagas-abertas" element={<PublicJobs />} />
               <Route path="/aplicar/:jobId" element={<PublicApplicationForm />} />
               <Route path="/privacidade" element={<PrivacyPolicy />} />
