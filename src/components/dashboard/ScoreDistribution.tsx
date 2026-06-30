@@ -1,4 +1,4 @@
-import { BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer, LabelList, ReferenceLine } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer, LabelList } from "recharts";
 import { DbCandidate } from "@/hooks/useCandidates";
 
 interface Props {
@@ -33,7 +33,12 @@ export default function ScoreDistribution({ candidates }: Props) {
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-      <h2 className="font-display text-base font-bold text-foreground">Distribuição de Scores</h2>
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="font-display text-base font-bold text-foreground">Distribuição de Scores</h2>
+        {avgScore !== null && (
+          <span className="text-xs text-muted-foreground">Média: <span className="font-bold text-foreground">{avgScore}</span></span>
+        )}
+      </div>
       {scoredCandidates.length === 0 ? (
         <p className="mt-4 text-sm text-muted-foreground">Sem candidatos avaliados ainda</p>
       ) : (
@@ -43,16 +48,6 @@ export default function ScoreDistribution({ candidates }: Props) {
               <BarChart data={scoreDistribution} barCategoryGap="20%">
                 <XAxis dataKey="range" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                 <YAxis hide allowDecimals={false} />
-                {avgScore !== null && (
-                  <ReferenceLine
-                    y={avgScore > 0 ? undefined : undefined}
-                    stroke="#F59E0B"
-                    strokeDasharray="6 3"
-                    strokeWidth={1.5}
-                    label={{ value: `Média: ${avgScore}`, position: "right", fontSize: 11, fill: "#F59E0B", fontWeight: 600 }}
-                    // ReferenceLine on Y doesn't make sense for count chart, so we use a custom approach
-                  />
-                )}
                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                   <LabelList dataKey="count" position="top" style={{ fontSize: 12, fontWeight: 600 }} />
                   {scoreDistribution.map((entry, idx) => (

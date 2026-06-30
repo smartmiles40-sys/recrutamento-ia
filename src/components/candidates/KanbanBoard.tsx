@@ -102,6 +102,17 @@ export default function KanbanBoard({ candidates, jobs }: KanbanBoardProps) {
     setActiveCandidate(c || null);
   };
 
+  // Mantém o `status` (usado por Aprovados/Reprovados e pelos KPIs) em sincronia
+  // com a coluna do Kanban. Etapas terminais definem o status; voltar para uma
+  // etapa ativa reabre o candidato (in_progress).
+  const moveCandidate = (candidateId: string, newStage: PipelineStage) => {
+    const status =
+      newStage === "contratado" ? "approved" :
+      newStage === "reprovado" ? "rejected" :
+      "in_progress";
+    updateCandidate.mutate({ id: candidateId, pipeline_stage: newStage, status } as any);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveCandidate(null);
     const { active, over } = event;
@@ -111,16 +122,17 @@ export default function KanbanBoard({ candidates, jobs }: KanbanBoardProps) {
     const candidate = candidates.find(c => c.id === candidateId);
     if (!candidate || candidate.pipeline_stage === newStage) return;
 
-    if (newStage === "reprovado") {
+    // Etapas terminais (decisões fortes) pedem confirmação.
+    if (newStage === "reprovado" || newStage === "contratado") {
       setConfirmMove({ candidate, to: newStage });
     } else {
-      updateCandidate.mutate({ id: candidateId, pipeline_stage: newStage } as any);
+      moveCandidate(candidateId, newStage);
     }
   };
 
-  const confirmReject = () => {
+  const confirmMoveAction = () => {
     if (!confirmMove) return;
-    updateCandidate.mutate({ id: confirmMove.candidate.id, pipeline_stage: confirmMove.to } as any);
+    moveCandidate(confirmMove.candidate.id, confirmMove.to);
     setConfirmMove(null);
   };
 
@@ -145,14 +157,21 @@ export default function KanbanBoard({ candidates, jobs }: KanbanBoardProps) {
       <AlertDialog open={!!confirmMove} onOpenChange={() => setConfirmMove(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Mover para Reprovado?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {confirmMove?.to === "contratado" ? "Confirmar contratação?" : "Mover para Reprovado?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja mover {confirmMove?.candidate.name} para Reprovado? Essa ação pode ser revertida.
+              {confirmMove?.to === "contratado"
+                ? `Mover ${confirmMove?.candidate.name} para Contratado e marcar como Aprovado? Essa ação pode ser revertida.`
+                : `Tem certeza que deseja mover ${confirmMove?.candidate.name} para Reprovado? Essa ação pode ser revertida.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmReject}>
+            <AlertDialogAction
+              className={confirmMove?.to === "contratado" ? "bg-success text-foreground hover:bg-success/90" : "bg-destructive text-destructive-foreground hover:bg-destructive/90"}
+              onClick={confirmMoveAction}
+            >
               Confirmar
             </AlertDialogAction>
           </AlertDialogFooter>

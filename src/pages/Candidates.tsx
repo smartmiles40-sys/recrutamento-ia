@@ -17,10 +17,10 @@ import KanbanBoard from "@/components/candidates/KanbanBoard";
 export default function Candidates() {
   const [searchParams] = useSearchParams();
   const initialClass = searchParams.get("classification") || "all";
-  const [filter, setFilter] = useState("all");
+  const initialJob = searchParams.get("jobId") || "all";
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState(initialClass);
-  const [jobFilter, setJobFilter] = useState("all");
+  const [jobFilter, setJobFilter] = useState(initialJob);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "kanban">(() => {
     return (localStorage.getItem("candidates-view") as "list" | "kanban") || "kanban";
@@ -36,9 +36,11 @@ export default function Candidates() {
   const updateCandidate = useUpdateCandidate();
 
   const filtered = candidates.filter((c) => {
-    if (c.status === "rejected" || c.status === "approved") return false;
-    const job = jobs.find(j => j.id === c.job_id);
-    if (filter !== "all" && job?.area !== filter) return false;
+    // Arquivados nunca aparecem aqui.
+    if (c.status === "archived") return false;
+    // Na lista mostramos só o pipeline ativo. No kanban mostramos todas as
+    // colunas (incluindo Contratado/Reprovado), senão essas colunas ficam vazias.
+    if (viewMode === "list" && (c.status === "rejected" || c.status === "approved")) return false;
     if (classFilter !== "all" && c.classification !== classFilter) return false;
     if (jobFilter !== "all" && c.job_id !== jobFilter) return false;
     if (search && !c.name.toLowerCase().includes(search.toLowerCase()) && !c.email.toLowerCase().includes(search.toLowerCase())) return false;

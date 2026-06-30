@@ -1,4 +1,3 @@
-import { cn } from "@/lib/utils";
 import { PIPELINE_STAGES, DbCandidate } from "@/hooks/useCandidates";
 
 interface Props {
@@ -6,13 +5,9 @@ interface Props {
 }
 
 export default function FunnelVelocity({ candidates }: Props) {
-  // For velocity, we approximate: candidates currently in a stage → time = now - updated_at of when they entered
-  // Since we don't track stage transitions, we use candidates who have PASSED a stage (are in a later one)
-  // and estimate time from applied_at progression. With limited data, we show what's possible.
-  
-  // Simple approach: for each stage, find candidates currently IN that stage and compute days since updated_at
-  const stageOrder = PIPELINE_STAGES.map(s => s.key);
-  
+  // Estimativa: como ainda não guardamos o histórico de transições de etapa,
+  // aproximamos o tempo "parado" pela diferença entre agora e updated_at do
+  // candidato que está atualmente na etapa. É uma aproximação, não o tempo real.
   const stageData = PIPELINE_STAGES.filter(s => s.key !== "nova_candidatura" && s.key !== "reprovado").map((stage) => {
     const inStage = candidates.filter(c => c.pipeline_stage === stage.key);
     if (inStage.length === 0) return { label: stage.label, avgDays: null };
@@ -35,7 +30,7 @@ export default function FunnelVelocity({ candidates }: Props) {
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-card">
       <h2 className="font-display text-base font-bold text-foreground">Velocidade do Funil</h2>
-      <p className="mt-0.5 text-xs text-muted-foreground">Tempo médio que candidatos ficam em cada etapa</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">Estimativa de tempo parado em cada etapa (pela última atualização)</p>
       <div className="mt-4 space-y-3">
         {stageData.map((s) => (
           <div key={s.label}>
