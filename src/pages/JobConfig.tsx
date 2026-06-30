@@ -12,10 +12,12 @@ import {
 import { useCandidatesByJob } from "@/hooks/useCandidates";
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Copy, Check, Plus, X, Trash2, ChevronDown, ChevronUp, Settings, RotateCcw, Library } from "lucide-react";
+import { ArrowLeft, Copy, Check, Plus, X, Trash2, ChevronDown, ChevronUp, Settings, RotateCcw, Library, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { generateJobSheet } from "@/lib/reportPdf";
+import logo from "@/assets/logo-horizontal-dark-teal.png";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -161,6 +163,41 @@ export default function JobConfig() {
     } as any);
   };
 
+  const handleExportJobPdf = () => {
+    const ok = generateJobSheet({
+      logoSrc: logo,
+      job: {
+        title: job.title,
+        area: job.area,
+        status: job.status,
+        intro_title: (job as any).intro_title,
+        intro_message: (job as any).intro_message,
+        behavioral_profile: job.behavioral_profile,
+        practical_case: job.practical_case,
+        required_skills: job.required_skills,
+        min_culture_score: job.min_culture_score,
+        min_technical_score: job.min_technical_score,
+        created_at: job.created_at,
+      },
+      stages: stages.map((s) => ({
+        label: s.label,
+        weight: s.weight,
+        is_enabled: s.is_enabled,
+        is_eliminatory: s.is_eliminatory,
+        min_score: s.min_score,
+        questionCount: questions.filter((q) => q.stage_id === s.id).length,
+      })),
+      applicationUrl: applicationLink,
+    });
+    if (!ok) {
+      toast({
+        title: "Pop-up bloqueado",
+        description: "Permita pop-ups para este site e tente novamente para gerar o PDF.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleAddBlock = (block: any) => {
     addBlockToJob.mutate({
       jobId: jobId!,
@@ -203,6 +240,14 @@ export default function JobConfig() {
             <p className="text-sm text-muted-foreground">{job.title} • {jobCandidates.length} candidatos</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportJobPdf}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
+              title="Exportar a descrição da vaga em PDF"
+            >
+              <FileText className="h-4 w-4" />
+              Exportar PDF
+            </button>
             <button
               onClick={() => updateJob.mutate({ id: job.id, status: job.status === "active" ? "draft" : "active" })}
               className={cn(
