@@ -12,6 +12,8 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
+import { generateCandidateReport } from "@/lib/reportPdf";
+import logo from "@/assets/logo-horizontal-dark-teal.png";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -197,76 +199,54 @@ export default function CandidateDetail() {
   };
 
   const handleGenerateResponsesPdf = () => {
-    const grouped = candidateResponses.reduce((acc, r) => {
-      if (!acc[r.stage_label]) acc[r.stage_label] = [];
-      acc[r.stage_label].push(r);
-      return acc;
-    }, {} as Record<string, typeof candidateResponses>);
+    const pipelineKey = (candidate as any).pipeline_stage || "nova_candidatura";
+    const pipelineLabel = PIPELINE_STAGES.find(s => s.key === pipelineKey)?.label || null;
 
-    const discSection = disc ? `
-      <div style="margin-bottom:20px;">
-        <h2 style="font-size:14px;color:#333;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:10px;">DISC / Temperamento</h2>
-        <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
-          <tr>
-            ${(["D","I","S","C"] as const).map((k) => {
-              const key = `${k.toLowerCase()}_score` as "d_score"|"i_score"|"s_score"|"c_score";
-              return `<td style="text-align:center;padding:8px;border:1px solid #eee;"><strong style="font-size:18px;">${disc[key] ?? "—"}</strong><br/><span style="font-size:11px;color:#888;">${k}</span></td>`;
-            }).join("")}
-          </tr>
-        </table>
-        ${disc.summary ? `<p style="font-size:12px;color:#555;background:#f9f9f9;padding:8px;border-radius:4px;">${disc.summary}</p>` : ""}
-      </div>
-    ` : "";
+    const scoreRows = scorableStages.map((s) => {
+      const sc = getEvalScore(s.id);
+      const contribution = sc !== null && totalWeight > 0 ? Math.round((sc * s.weight) / totalWeight) : null;
+      return { label: s.label, weight: s.weight, score: sc, contribution };
+    });
 
-    const cvSection = candidate.cv_analysis && typeof candidate.cv_analysis === "object" ? `
-      <div style="margin-bottom:20px;">
-        <h2 style="font-size:14px;color:#333;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:10px;">Análise de CV (IA)</h2>
-        <p style="font-size:12px;color:#555;"><strong>Score:</strong> ${(candidate.cv_analysis as any).score ?? "—"} | <strong>Recomendação:</strong> ${(candidate.cv_analysis as any).recommendation ?? "—"}</p>
-        ${(candidate.cv_analysis as any).summary ? `<p style="font-size:12px;color:#555;margin-top:4px;">${(candidate.cv_analysis as any).summary}</p>` : ""}
-      </div>
-    ` : "";
+    const ok = generateCandidateReport({
+      logoSrc: logo,
+      candidate: {
+        name: candidate.name,
+        email: candidate.email,
+        phone: candidate.phone,
+        applied_at: candidate.applied_at,
+        status: candidate.status,
+        pipeline_stage: pipelineKey,
+        pipeline_label: pipelineLabel,
+        lgpd_consent: (candidate as any).lgpd_consent,
+        lgpd_consent_date: (candidate as any).lgpd_consent_date,
+        alerts: candidate.alerts,
+        cv_analysis: candidate.cv_analysis,
+      },
+      job: job ? { title: job.title, area: job.area } : null,
+      finalScore,
+      classification,
+      scoreRows,
+      disc,
+      responses: candidateResponses.map((r) => ({
+        code: r.code,
+        stage_label: r.stage_label,
+        question_text: r.question_text,
+        response_value: r.response_value,
+      })),
+      notes: notes.map((n) => ({
+        author_name: n.author_name,
+        created_at: n.created_at,
+        content: n.content,
+      })),
+    });
 
-    const responsesHtml = Object.entries(grouped).map(([stageLabel, responses]) => `
-      <div style="margin-bottom:16px;">
-        <h2 style="font-size:14px;color:#333;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:8px;">${stageLabel}</h2>
-        ${responses.map(r => `
-          <div style="margin-bottom:10px;padding:8px;border:1px solid #eee;border-radius:4px;">
-            <div style="font-size:12px;font-weight:600;color:#333;margin-bottom:4px;">${r.question_text}</div>
-            <div style="font-size:12px;color:#555;white-space:pre-wrap;">${r.response_value || '<em>Sem resposta</em>'}</div>
-          </div>
-        `).join("")}
-      </div>
-    `).join("");
-
-    const scoreHtml = finalScore !== null ? `
-      <div style="margin-bottom:20px;padding:12px;background:#f5f5f5;border-radius:6px;text-align:center;">
-        <div style="font-size:28px;font-weight:bold;">${Math.round(finalScore)}</div>
-        <div style="font-size:12px;color:#888;">Score Final — ${classification || "Pendente"}</div>
-      </div>
-    ` : "";
-
-    const html = `
-      <!DOCTYPE html>
-      <html><head><meta charset="utf-8"><title>Relatório - ${candidate.name}</title>
-      <style>body{font-family:Arial,Helvetica,sans-serif;padding:30px;color:#333;max-width:800px;margin:0 auto;}@media print{body{padding:15px;}}</style>
-      </head><body>
-        <h1 style="font-size:20px;margin-bottom:4px;">${candidate.name}</h1>
-        <p style="font-size:12px;color:#888;margin-bottom:4px;">${candidate.email}${candidate.phone ? ` • ${candidate.phone}` : ""}</p>
-        <p style="font-size:12px;color:#888;margin-bottom:20px;">Vaga: ${job?.title || "—"} (${job?.area || "—"}) • Candidatou-se em ${new Date(candidate.applied_at).toLocaleDateString("pt-BR")}</p>
-        ${scoreHtml}
-        ${cvSection}
-        ${discSection}
-        <h2 style="font-size:16px;color:#333;margin-bottom:12px;">Respostas do Formulário</h2>
-        ${responsesHtml}
-        <p style="font-size:10px;color:#aaa;margin-top:30px;text-align:center;">Gerado em ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</p>
-      </body></html>
-    `;
-
-    const win = window.open("", "_blank");
-    if (win) {
-      win.document.write(html);
-      win.document.close();
-      setTimeout(() => win.print(), 500);
+    if (!ok) {
+      toast({
+        title: "Pop-up bloqueado",
+        description: "Permita pop-ups para este site e tente novamente para gerar o PDF.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -319,6 +299,14 @@ export default function CandidateDetail() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleGenerateResponsesPdf}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted transition-colors"
+              title="Exportar relatório completo do candidato em PDF"
+            >
+              <FileText className="h-4 w-4" />
+              Exportar PDF
+            </button>
             {candidate.status !== "approved" && (
               <button
                 onClick={() => updateCandidate.mutate({ id: candidate.id, status: "approved" })}
