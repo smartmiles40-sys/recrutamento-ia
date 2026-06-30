@@ -4,14 +4,15 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 
-type Mode = "login" | "signup" | "reset";
+// Cadastro público foi removido: contas são criadas por um admin em
+// Configurações → Usuários. Aqui só há login e recuperação de senha.
+type Mode = "login" | "reset";
 
 export default function Auth() {
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -24,20 +25,6 @@ export default function Auth() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         navigate("/");
-      } else if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { display_name: name },
-            emailRedirectTo: window.location.origin,
-          },
-        });
-        if (error) throw error;
-        toast({
-          title: "Cadastro realizado!",
-          description: "Verifique seu email para confirmar a conta.",
-        });
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/redefinir-senha`,
@@ -62,7 +49,6 @@ export default function Auth() {
 
   const titles: Record<Mode, string> = {
     login: "Entrar",
-    signup: "Criar Conta",
     reset: "Redefinir senha",
   };
 
@@ -91,18 +77,6 @@ export default function Auth() {
             <p className="text-sm text-muted-foreground">
               Informe seu email e enviaremos um link para você criar uma nova senha.
             </p>
-          )}
-
-          {mode === "signup" && (
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">Nome</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className={inputClass}
-                required
-              />
-            </div>
           )}
 
           <div>
@@ -157,10 +131,10 @@ export default function Auth() {
             className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {mode === "login" ? "Entrar" : mode === "signup" ? "Criar Conta" : "Enviar link de recuperação"}
+            {mode === "login" ? "Entrar" : "Enviar link de recuperação"}
           </button>
 
-          {mode === "reset" ? (
+          {mode === "reset" && (
             <p className="text-center text-sm text-muted-foreground">
               <button
                 type="button"
@@ -168,17 +142,6 @@ export default function Auth() {
                 className="font-semibold text-foreground hover:underline"
               >
                 Voltar para o login
-              </button>
-            </p>
-          ) : (
-            <p className="text-center text-sm text-muted-foreground">
-              {mode === "login" ? "Não tem conta? " : "Já tem conta? "}
-              <button
-                type="button"
-                onClick={() => setMode(mode === "login" ? "signup" : "login")}
-                className="font-semibold text-foreground hover:underline"
-              >
-                {mode === "login" ? "Criar conta" : "Entrar"}
               </button>
             </p>
           )}

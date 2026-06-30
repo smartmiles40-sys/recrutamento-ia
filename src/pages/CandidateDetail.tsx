@@ -136,6 +136,13 @@ export default function CandidateDetail() {
     });
   };
 
+  // Muda a etapa do pipeline mantendo o `status` em sincronia (igual ao Kanban),
+  // para que Aprovados/Reprovados e os KPIs reflitam a decisão.
+  const moveToStage = (val: PipelineStage) => {
+    const status = val === "contratado" ? "approved" : val === "reprovado" ? "rejected" : "in_progress";
+    updateCandidate.mutate({ id: candidate.id, pipeline_stage: val, status } as any);
+  };
+
   const handleEdit = () => {
     setEditName(candidate.name);
     setEditEmail(candidate.email);
@@ -285,7 +292,7 @@ export default function CandidateDetail() {
                         setPendingStage(val);
                         setShowRejectConfirm(true);
                       } else {
-                        updateCandidate.mutate({ id: candidate.id, pipeline_stage: val } as any);
+                        moveToStage(val);
                       }
                     }}
                     className="mt-1 block h-8 rounded-lg border border-input bg-card px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -829,7 +836,7 @@ export default function CandidateDetail() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
-                if (pendingStage) updateCandidate.mutate({ id: candidate.id, pipeline_stage: pendingStage } as any);
+                if (pendingStage) moveToStage(pendingStage);
                 setShowRejectConfirm(false);
                 setPendingStage(null);
               }}

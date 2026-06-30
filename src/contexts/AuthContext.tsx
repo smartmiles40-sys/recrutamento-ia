@@ -7,6 +7,7 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   role: string | null;
+  roleLoading: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -15,6 +16,7 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   loading: true,
   role: null,
+  roleLoading: true,
   signOut: async () => {},
 });
 
@@ -43,11 +45,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const [roleLoading, setRoleLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadRole = (userId: string) => {
+      setRoleLoading(true);
       // Deferred to next tick — calling supabase.from(...) directly inside
       // onAuthStateChange triggers a deadlock with the auth navigator lock,
       // which leaves `loading` stuck on true and shows an infinite spinner.
@@ -57,6 +61,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!cancelled) setRole(fetchedRole);
         } catch {
           if (!cancelled) setRole(null);
+        } finally {
+          if (!cancelled) setRoleLoading(false);
         }
       }, 0);
     };
@@ -65,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       if (nextSession?.user) loadRole(nextSession.user.id);
-      else setRole(null);
+      else { setRole(null); setRoleLoading(false); }
       setLoading(false);
     });
 
@@ -75,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         if (currentSession?.user) loadRole(currentSession.user.id);
-        else setRole(null);
+        else { setRole(null); setRoleLoading(false); }
         setLoading(false);
       })
       .catch((err) => {
@@ -86,13 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null);
         setUser(null);
         setRole(null);
+        setRoleLoading(false);
         setLoading(false);
       });
 
     // Safety net: if anything stalls (network blocked, auth lock contention),
     // unblock the UI after 8s instead of showing the spinner forever.
     const safetyTimeout = setTimeout(() => {
-      if (!cancelled) setLoading(false);
+      if (!cancelled) { setLoading(false); setRoleLoading(false); }
     }, 8000);
 
     return () => {
@@ -108,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, role, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, role, roleLoading, signOut }}>
       {children}
     </AuthContext.Provider>
   );

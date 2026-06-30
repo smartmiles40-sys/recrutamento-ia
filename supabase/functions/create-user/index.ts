@@ -55,10 +55,19 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: createError.message }, 400);
     }
 
-    // handle_new_user trigger inserts default role (admin if first user,
-    // recruiter otherwise). Override only if requested role differs.
-    if (role !== "recruiter") {
-      await admin.from("user_roles").update({ role }).eq("user_id", newUser.user.id);
+    // The handle_new_user trigger no longer grants a default role to anyone but
+    // the very first user, so we assign the requested role explicitly. Delete +
+    // insert guarantees exactly one role regardless of what the trigger did.
+    await admin.from("user_roles").delete().eq("user_id", newUser.user.id);
+    const { error: roleError } = await admin
+      .from("user_roles")
+      .insert({ user_id: newUser.user.id, role });
+
+    if (roleError) {
+      // Don't leave behind an account that can authenticate but has no role.
+      await admin.auth.admin.deleteUser(newUser.user.id).catch(() => {});
+      console.error("[create-user] role assignment failed:", roleError.message);
+      return jsonResponse({ error: "Não foi possível definir a permissão do usuário." }, 500);
     }
 
     console.log(`[create-user] caller=${caller.userId} created user=${newUser.user.id} role=${role}`);

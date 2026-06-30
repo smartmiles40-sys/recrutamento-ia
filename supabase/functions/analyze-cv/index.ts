@@ -42,21 +42,37 @@ serve(async (req) => {
       return jsonResponse({ error: "Acesso negado" }, 403);
     }
 
+    // Bind the CV to the candidate. For a known candidate we NEVER trust the
+    // client-supplied path: we derive it from the candidate row, so a caller
+    // can't have another candidate's CV downloaded/analyzed (IDOR).
+    let effectiveCvPath = String(cvPath);
+    if (candidateId) {
+      const { data: ownerRow } = await admin
+        .from("candidates")
+        .select("cv_url")
+        .eq("id", candidateId)
+        .single();
+      if (!ownerRow?.cv_url) {
+        return jsonResponse({ error: "Candidato sem currículo cadastrado." }, 404);
+      }
+      effectiveCvPath = ownerRow.cv_url;
+    }
+
     // File-size guard: we can't trust the caller's claimed size, so we read
     // metadata from storage first.
-    const cvFolder = cvPath.split("/")[0];
+    const cvFolder = effectiveCvPath.split("/")[0];
     if (!cvFolder) {
       return jsonResponse({ error: "Caminho de CV inválido" }, 400);
     }
 
-    const extension = cvPath.split(".").pop()?.toLowerCase();
+    const extension = effectiveCvPath.split(".").pop()?.toLowerCase();
     if (!extension || !ALLOWED_EXTENSIONS.has(extension)) {
       return jsonResponse({
         error: `Formato não suportado. Use PDF. Formatos aceitos: ${[...ALLOWED_EXTENSIONS].join(", ")}`,
       }, 415);
     }
 
-    const { data: fileData, error: fileError } = await admin.storage.from("cvs").download(cvPath);
+    const { data: fileData, error: fileError } = await admin.storage.from("cvs").download(effectiveCvPath);
     if (fileError || !fileData) {
       console.error("[analyze-cv] storage download failed:", fileError?.message);
       return jsonResponse({ error: "Falha ao baixar o currículo." }, 500);
@@ -149,7 +165,7 @@ REGRAS INVIOLÁVEIS
       {
         type: "file",
         file: {
-          filename: sanitizeForPrompt(cvPath.split("/").pop() || "cv.pdf", 100),
+          filename: sanitizeForPrompt(effectiveCvPath.split("/").pop() || "cv.pdf", 100),
           file_data: `data:application/pdf;base64,${base64Content}`,
         },
       },
@@ -189,14 +205,10 @@ REGRAS INVIOLÁVEIS
       const jsonStr = content.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
       analysis = JSON.parse(jsonStr);
     } catch {
+      // Don't fabricate a score (the old code persisted a fake 50 "Com
+      // Ressalvas", silently polluting the candidate's score). Fail instead.
       console.error("[analyze-cv] failed to parse AI response");
-      analysis = {
-        score: 50,
-        summary: content.substring(0, 300),
-        strengths: [],
-        weaknesses: [],
-        recommendation: "Com Ressalvas",
-      };
+      return jsonResponse({ error: "Não foi possível interpretar a análise da IA. Tente novamente." }, 502);
     }
 
     // Persist on the candidate row if we have one. Ownership was already
