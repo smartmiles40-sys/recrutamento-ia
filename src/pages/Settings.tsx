@@ -13,6 +13,7 @@ import {
   useUpdateBlockQuestion,
   useDeleteBlockQuestion,
 } from "@/hooks/useBlockTemplates";
+import { useAreaNames } from "@/hooks/useAreas";
 import {
   ChevronDown, ChevronUp, Plus, X, Trash2, Copy, Download, Upload,
   ToggleLeft, ToggleRight, Library, Shield, Users, FileText,
@@ -91,6 +92,7 @@ export default function Settings() {
 function BlockLibrary() {
   const { data: blocks = [], isLoading } = useBlockTemplates();
   const { data: allQuestions = [] } = useAllBlockTemplateQuestions();
+  const { data: areaNames = [] } = useAreaNames();
   const createBlock = useCreateBlockTemplate();
   const updateBlock = useUpdateBlockTemplate();
   const deleteBlock = useDeleteBlockTemplate();
@@ -259,6 +261,9 @@ function BlockLibrary() {
                   <div className="flex items-center gap-2">
                     <h3 className="font-display text-sm font-bold text-foreground">{block.name}</h3>
                     <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{block.stage_key}</span>
+                    {block.area && (
+                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-foreground">{block.area}</span>
+                    )}
                     {block.is_eliminatory && (
                       <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">Eliminatório</span>
                     )}
@@ -285,6 +290,17 @@ function BlockLibrary() {
               {isExpanded && (
                 <div className="border-t border-border p-4">
                   <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-medium text-muted-foreground">Área</label>
+                      <select
+                        value={block.area ?? ""}
+                        onChange={(e) => updateBlock.mutate({ id: block.id, area: e.target.value || null })}
+                        className="h-8 w-full rounded border border-input bg-background px-2 text-xs"
+                      >
+                        <option value="">Todas as áreas</option>
+                        {areaNames.map((a) => <option key={a} value={a}>Somente {a}</option>)}
+                      </select>
+                    </div>
                     <div>
                       <label className="mb-1 block text-[10px] font-medium text-muted-foreground">Peso sugerido</label>
                       <input

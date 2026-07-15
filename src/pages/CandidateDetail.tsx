@@ -373,6 +373,18 @@ export default function CandidateDetail() {
               <span className="text-xs font-semibold text-muted-foreground">Vaga</span>
               <p className="text-sm text-foreground">{job?.title || "—"} ({job?.area || "—"})</p>
             </div>
+            {(candidate as any).desired_area && (
+              <div>
+                <span className="text-xs font-semibold text-muted-foreground">Área de interesse</span>
+                <p className="text-sm text-foreground">{(candidate as any).desired_area}</p>
+              </div>
+            )}
+            {(candidate as any).desired_role && (
+              <div>
+                <span className="text-xs font-semibold text-muted-foreground">Cargo de interesse</span>
+                <p className="text-sm text-foreground">{(candidate as any).desired_role}</p>
+              </div>
+            )}
             <div>
               <span className="text-xs font-semibold text-muted-foreground">Status</span>
               <p className={cn("text-sm font-medium capitalize", candidate.status === "approved" ? "text-success" : candidate.status === "rejected" ? "text-destructive" : "text-foreground")}>{candidate.status === "in_progress" ? "Em andamento" : candidate.status === "archived" ? "Arquivado" : candidate.status === "approved" ? "Aprovado" : candidate.status === "rejected" ? "Reprovado" : candidate.status || "—"}</p>

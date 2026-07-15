@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      areas: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       block_template_questions: {
         Row: {
           block_template_id: string
@@ -57,6 +81,7 @@ export type Database = {
       }
       block_templates: {
         Row: {
+          area: string | null
           created_at: string
           description: string | null
           evaluation_criteria: string | null
@@ -70,6 +95,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          area?: string | null
           created_at?: string
           description?: string | null
           evaluation_criteria?: string | null
@@ -83,6 +109,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          area?: string | null
           created_at?: string
           description?: string | null
           evaluation_criteria?: string | null
@@ -95,7 +122,15 @@ export type Database = {
           suggested_weight?: number | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "block_templates_area_fkey"
+            columns: ["area"]
+            isOneToOne: false
+            referencedRelation: "areas"
+            referencedColumns: ["name"]
+          },
+        ]
       }
       candidate_disc: {
         Row: {
@@ -283,6 +318,8 @@ export type Database = {
           current_stage_id: string | null
           cv_analysis: Json | null
           cv_url: string | null
+          desired_area: string | null
+          desired_role: string | null
           email: string
           final_score: number | null
           id: string
@@ -302,6 +339,8 @@ export type Database = {
           current_stage_id?: string | null
           cv_analysis?: Json | null
           cv_url?: string | null
+          desired_area?: string | null
+          desired_role?: string | null
           email: string
           final_score?: number | null
           id?: string
@@ -321,6 +360,8 @@ export type Database = {
           current_stage_id?: string | null
           cv_analysis?: Json | null
           cv_url?: string | null
+          desired_area?: string | null
+          desired_role?: string | null
           email?: string
           final_score?: number | null
           id?: string
@@ -352,6 +393,7 @@ export type Database = {
       }
       job_stages: {
         Row: {
+          area: string | null
           created_at: string
           evaluation_criteria: string | null
           id: string
@@ -367,6 +409,7 @@ export type Database = {
           weight: number | null
         }
         Insert: {
+          area?: string | null
           created_at?: string
           evaluation_criteria?: string | null
           id?: string
@@ -382,6 +425,7 @@ export type Database = {
           weight?: number | null
         }
         Update: {
+          area?: string | null
           created_at?: string
           evaluation_criteria?: string | null
           id?: string
@@ -397,6 +441,13 @@ export type Database = {
           weight?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "job_stages_area_fkey"
+            columns: ["area"]
+            isOneToOne: false
+            referencedRelation: "areas"
+            referencedColumns: ["name"]
+          },
           {
             foreignKeyName: "job_stages_job_id_fkey"
             columns: ["job_id"]
@@ -424,11 +475,13 @@ export type Database = {
           id: string
           intro_message: string | null
           intro_title: string | null
+          is_talent_pool: boolean
           min_culture_score: number | null
           min_technical_score: number | null
           practical_case: string | null
           required_skills: string[] | null
           status: string
+          talent_pool_areas: string[]
           title: string
           updated_at: string
         }
@@ -442,11 +495,13 @@ export type Database = {
           id?: string
           intro_message?: string | null
           intro_title?: string | null
+          is_talent_pool?: boolean
           min_culture_score?: number | null
           min_technical_score?: number | null
           practical_case?: string | null
           required_skills?: string[] | null
           status?: string
+          talent_pool_areas?: string[]
           title: string
           updated_at?: string
         }
@@ -460,11 +515,13 @@ export type Database = {
           id?: string
           intro_message?: string | null
           intro_title?: string | null
+          is_talent_pool?: boolean
           min_culture_score?: number | null
           min_technical_score?: number | null
           practical_case?: string | null
           required_skills?: string[] | null
           status?: string
+          talent_pool_areas?: string[]
           title?: string
           updated_at?: string
         }

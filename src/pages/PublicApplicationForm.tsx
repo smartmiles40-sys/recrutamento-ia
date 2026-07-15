@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import FileUpload from "@/components/shared/FileUpload";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { stageMatchesArea } from "@/lib/talentPool";
 
 // Error Boundary to prevent white screen crashes
 class FormErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -47,6 +48,8 @@ interface JobData {
   intro_title: string | null;
   intro_message: string | null;
   disc_test_url: string | null;
+  is_talent_pool: boolean;
+  talent_pool_areas: string[] | null;
 }
 
 interface StageData {
@@ -55,6 +58,8 @@ interface StageData {
   label: string;
   stage_order: number;
   is_enabled: boolean;
+  /** Bloco exclusivo de uma área. null = todos respondem. */
+  area: string | null;
 }
 
 interface QuestionData {
@@ -85,6 +90,11 @@ function PublicApplicationFormInner() {
   const [questionFiles, setQuestionFiles] = useState<Record<string, File | null>>({});
   const [lgpdConsent, setLgpdConsent] = useState(false);
   const [lgpdError, setLgpdError] = useState(false);
+  // Talent pool: the candidate picks their area and types the role they want.
+  const [areaOptions, setAreaOptions] = useState<string[]>([]);
+  const [desiredArea, setDesiredArea] = useState("");
+  const [desiredRole, setDesiredRole] = useState("");
+  const [talentPoolError, setTalentPoolError] = useState<string | null>(null);
   const { toast } = useToast();
 
   const sanitizeFileName = (name: string) =>
@@ -107,6 +117,22 @@ function PublicApplicationFormInner() {
 
       if (!jobData) { setLoading(false); return; }
       setJob(jobData as JobData);
+
+      // Talent pool: offer the areas the recruiter picked, or every active area
+      // when none was picked.
+      if ((jobData as JobData).is_talent_pool) {
+        const picked = (jobData as JobData).talent_pool_areas ?? [];
+        if (picked.length > 0) {
+          setAreaOptions(picked);
+        } else {
+          const { data: areaData } = await supabase
+            .from("areas")
+            .select("name")
+            .eq("is_active", true)
+            .order("sort_order");
+          setAreaOptions((areaData ?? []).map((a: any) => a.name));
+        }
+      }
 
       const { data: stageData } = await supabase
         .from("job_stages")
@@ -155,15 +181,22 @@ function PublicApplicationFormInner() {
 
   // Build form steps
   const discStage = stages.find(s => s.stage_key === "disc");
+  const isTalentPool = job.is_talent_pool;
   const formSteps: { type: "details" | "personal" | "cv" | "disc" | "stage"; stageId?: string; label: string }[] = [
-    { type: "details", label: "Sobre a Vaga" },
+    { type: "details", label: job.intro_title || (isTalentPool ? "Banco de Talentos" : "Sobre a Vaga") },
     { type: "personal", label: "Dados Pessoais" },
     { type: "cv", label: "Currículo" },
   ];
 
+  // In a talent pool the candidate only answers the blocks of the area they
+  // picked, plus the blocks with no area (common to everyone).
+  const matchesChosenArea = (stage: StageData) =>
+    stageMatchesArea(stage, { isTalentPool, chosenArea: desiredArea });
+
   // Only include stages that actually have questions configured (skip empty stages to avoid blank screens)
-  const questionStages = stages.filter(s => 
+  const questionStages = stages.filter(s =>
     s.stage_key !== "cv_upload" && s.stage_key !== "disc" && s.stage_key !== "application" &&
+    matchesChosenArea(s) &&
     questions.some(q => q.stage_id === s.id)
   );
   questionStages.forEach((s, i) => {
@@ -173,9 +206,17 @@ function PublicApplicationFormInner() {
   // Get extra questions from the application stage (exclude duplicates: nome, email, telefone)
   const applicationStage = stages.find(s => s.stage_key === "application");
   const applicationExtraQuestions = applicationStage
-    ? questions.filter(q => q.stage_id === applicationStage.id && 
+    ? questions.filter(q => q.stage_id === applicationStage.id &&
         !["nome completo", "e-mail", "telefone"].includes(q.question_text.toLowerCase().trim()))
     : [];
+
+  // Only what the candidate actually sees gets saved. Someone who answers one
+  // area, goes back and switches to another leaves stale answers in formData —
+  // those must not reach the database.
+  const visibleQuestionIds = new Set<string>([
+    ...questionStages.flatMap(s => questions.filter(q => q.stage_id === s.id).map(q => q.id)),
+    ...applicationExtraQuestions.map(q => q.id),
+  ]);
 
   // Add DISC step at the end if DISC stage is enabled
   if (discStage) {
@@ -219,6 +260,18 @@ function PublicApplicationFormInner() {
 
   const handleNext = async () => {
     try {
+      if (currentStep?.type === "details" && job?.is_talent_pool) {
+        if (isBlank(desiredArea)) {
+          setTalentPoolError("Escolha a área de interesse para continuar.");
+          return;
+        }
+        if (isBlank(desiredRole)) {
+          setTalentPoolError("Informe o cargo de interesse para continuar.");
+          return;
+        }
+        setTalentPoolError(null);
+      }
+
       if (currentStep?.type === "cv") {
         handleCvUpload();
       } else if (currentStep?.type === "disc") {
@@ -257,6 +310,8 @@ function PublicApplicationFormInner() {
         status: "in_progress",
         lgpd_consent: true,
         lgpd_consent_date: new Date().toISOString(),
+        desired_area: job?.is_talent_pool ? desiredArea || null : null,
+        desired_role: job?.is_talent_pool ? desiredRole.trim() || null : null,
       } as any]);
     if (candidateError) throw candidateError;
 
@@ -265,6 +320,7 @@ function PublicApplicationFormInner() {
     for (const [qKey, file] of Object.entries(questionFiles)) {
       if (!file) continue;
       const qId = qKey.replace("qfile_", "");
+      if (!visibleQuestionIds.has(qId)) continue;
       const sanitizedName = file.name
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
         .replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -276,7 +332,7 @@ function PublicApplicationFormInner() {
 
     // Save responses
     const responseEntries = Object.entries(formData)
-      .filter(([key]) => key.startsWith("q_"))
+      .filter(([key]) => key.startsWith("q_") && visibleQuestionIds.has(key.replace("q_", "")))
       .map(([key, value]) => ({
         candidate_id: candidateId,
         question_id: key.replace("q_", ""),
@@ -304,8 +360,12 @@ function PublicApplicationFormInner() {
           cvPath: cvUrl,
           candidateId,
           jobId,
-          jobTitle: job!.title,
-          jobArea: job!.area,
+          // In a talent pool the CV is judged against what the candidate wants,
+          // not against the job's own (administrative) title and area.
+          jobTitle: job!.is_talent_pool && desiredRole.trim()
+            ? `${job!.title} — ${desiredRole.trim()}`
+            : job!.title,
+          jobArea: job!.is_talent_pool && desiredArea ? desiredArea : job!.area,
           requiredSkills: job!.required_skills,
           behavioralProfile: job!.behavioral_profile,
         },
@@ -385,7 +445,9 @@ function PublicApplicationFormInner() {
     <PublicLayout>
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold text-foreground">{job.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{job.area}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {isTalentPool ? (desiredArea || "Escolha sua área de interesse para começar") : job.area}
+        </p>
       </div>
 
       <div className="mb-8">
@@ -399,19 +461,56 @@ function PublicApplicationFormInner() {
       <div className="rounded-xl border border-border bg-card p-6 shadow-card">
         {currentStep?.type === "details" && (
           <div className="space-y-5">
-            <h2 className="font-display text-lg font-bold text-foreground">{job.intro_title || "Sobre a Vaga"}</h2>
+            <h2 className="font-display text-lg font-bold text-foreground">
+              {job.intro_title || (isTalentPool ? "Banco de Talentos" : "Sobre a Vaga")}
+            </h2>
             <p className="whitespace-pre-line text-sm text-muted-foreground">{job.intro_message || "Leia com atenção as informações abaixo antes de iniciar sua candidatura."}</p>
-            
-            <div className="space-y-4">
-              <div className="rounded-lg border border-border bg-muted/30 p-4">
-                <h3 className="text-sm font-semibold text-foreground">Cargo</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{job.title}</p>
-              </div>
 
-              <div className="rounded-lg border border-border bg-muted/30 p-4">
-                <h3 className="text-sm font-semibold text-foreground">Área</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{job.area}</p>
-              </div>
+            <div className="space-y-4">
+              {isTalentPool ? (
+                <>
+                  <div className="rounded-lg border border-border bg-muted/30 p-4">
+                    <label className="text-sm font-semibold text-foreground">Área de interesse *</label>
+                    <p className="mt-0.5 text-xs text-muted-foreground">As próximas perguntas mudam conforme a área que você escolher.</p>
+                    <select
+                      value={desiredArea}
+                      onChange={(e) => { setDesiredArea(e.target.value); setTalentPoolError(null); }}
+                      className={inputClass + " mt-2"}
+                    >
+                      <option value="">Selecione uma área...</option>
+                      {areaOptions.map((a) => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-muted/30 p-4">
+                    <label className="text-sm font-semibold text-foreground">Cargo(s) de interesse *</label>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Qual cargo você busca? Ex: Analista, Assistente, Coordenador, Júnior.</p>
+                    <input
+                      value={desiredRole}
+                      onChange={(e) => { setDesiredRole(e.target.value); setTalentPoolError(null); }}
+                      placeholder="Ex: Analista Júnior"
+                      maxLength={120}
+                      className={inputClass + " mt-2"}
+                    />
+                  </div>
+
+                  {talentPoolError && (
+                    <p className="text-sm font-medium text-destructive">{talentPoolError}</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-border bg-muted/30 p-4">
+                    <h3 className="text-sm font-semibold text-foreground">Cargo</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{job.title}</p>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-muted/30 p-4">
+                    <h3 className="text-sm font-semibold text-foreground">Área</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{job.area}</p>
+                  </div>
+                </>
+              )}
 
               {job.required_skills && job.required_skills.length > 0 && (
                 <div className="rounded-lg border border-border bg-muted/30 p-4">

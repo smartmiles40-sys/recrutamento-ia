@@ -14,8 +14,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCandidates } from "@/hooks/useCandidates";
-
-const AREAS = ["Comercial", "Operações", "Marketing", "Financeiro", "Relacionamento"];
+import { useAreaNames } from "@/hooks/useAreas";
 
 const statusStyles: Record<string, string> = {
   active: "bg-success/10 text-foreground border-success/20",
@@ -32,12 +31,15 @@ export default function Jobs() {
   const [showCreate, setShowCreate] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
-  const [newArea, setNewArea] = useState("Comercial");
+  const [newArea, setNewArea] = useState("");
+  const [newIsTalentPool, setNewIsTalentPool] = useState(false);
+  const [newPoolAreas, setNewPoolAreas] = useState<string[]>([]);
   const { toast } = useToast();
   const { user } = useAuth();
 
   const { data: jobs = [], isLoading } = useJobs();
   const { data: candidates = [] } = useCandidates();
+  const { data: AREAS = [] } = useAreaNames();
   const createJob = useCreateJob();
   const deleteJob = useDeleteJob();
   const updateJob = useUpdateJob();
@@ -46,15 +48,27 @@ export default function Jobs() {
   const filteredJobs = filter === "all" ? jobs : jobs.filter((j) => j.area === filter);
   const candidateCount = (jobId: string) => candidates.filter(c => c.job_id === jobId).length;
 
+  // Areas come from the database, so default only once they have loaded.
+  const selectedArea = newArea || AREAS[0] || "";
+
+  const togglePoolArea = (area: string) =>
+    setNewPoolAreas((prev) => (prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]));
+
   const handleCreate = () => {
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim() || !selectedArea) return;
     createJob.mutate({
       title: newTitle.trim(),
-      area: newArea,
+      area: selectedArea,
       status: "draft",
       created_by: user?.id,
+      is_talent_pool: newIsTalentPool,
+      // Empty = offer every active area to the candidate.
+      talent_pool_areas: newIsTalentPool ? newPoolAreas : [],
+      ...(newIsTalentPool ? { intro_title: "Banco de Talentos" } : {}),
     } as any);
     setNewTitle("");
+    setNewIsTalentPool(false);
+    setNewPoolAreas([]);
     setShowCreate(false);
   };
 
@@ -117,13 +131,58 @@ export default function Jobs() {
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">Área</label>
-              <select value={newArea} onChange={(e) => setNewArea(e.target.value)} className={inputClass}>
+              <select value={selectedArea} onChange={(e) => setNewArea(e.target.value)} className={inputClass}>
                 {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
           </div>
+
+          {/* Talent pool */}
+          <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={newIsTalentPool}
+                onChange={(e) => setNewIsTalentPool(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input"
+              />
+              <span>
+                <span className="block text-sm font-medium text-foreground">É um Banco de Talentos</span>
+                <span className="block text-xs text-muted-foreground">
+                  O candidato escolhe a área de interesse e escreve o cargo que busca. As perguntas mudam conforme a área escolhida.
+                </span>
+              </span>
+            </label>
+
+            {newIsTalentPool && (
+              <div className="mt-3 border-t border-border pt-3">
+                <label className="mb-1.5 block text-sm font-medium text-foreground">Áreas oferecidas ao candidato</label>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {newPoolAreas.length === 0 ? "Nenhuma marcada — todas as áreas serão oferecidas." : `${newPoolAreas.length} área(s) marcada(s).`}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {AREAS.map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => togglePoolArea(a)}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                        newPoolAreas.includes(a)
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="mt-4 flex gap-2">
-            <button onClick={handleCreate} disabled={!newTitle.trim() || createJob.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
+            <button onClick={handleCreate} disabled={!newTitle.trim() || !selectedArea || createJob.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
               {createJob.isPending ? "Criando..." : "Criar Vaga"}
             </button>
             <button onClick={() => setShowCreate(false)} className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">Cancelar</button>
@@ -153,13 +212,22 @@ export default function Jobs() {
               <Link to={`/vagas/${job.id}/configurar`} className="block">
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-display text-base font-bold text-foreground">{job.title}</h3>
                       <span className={cn("rounded-md border px-2 py-0.5 text-[10px] font-semibold", statusStyles[job.status] || statusStyles.draft)}>
                         {statusLabels[job.status] || job.status}
                       </span>
+                      {job.is_talent_pool && (
+                        <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-foreground">
+                          Banco de Talentos
+                        </span>
+                      )}
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{job.area}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {job.is_talent_pool
+                        ? (job.talent_pool_areas?.length ? job.talent_pool_areas.join(" • ") : "Todas as áreas")
+                        : job.area}
+                    </p>
                   </div>
                   <ChevronRight className="h-5 w-5 text-muted-foreground transition-transform group-hover:translate-x-1" />
                 </div>

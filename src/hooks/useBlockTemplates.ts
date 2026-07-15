@@ -7,6 +7,8 @@ export interface BlockTemplate {
   name: string;
   description: string | null;
   stage_key: string;
+  /** Bloco exclusivo de uma área. null = vale para todas. */
+  area: string | null;
   suggested_weight: number;
   is_eliminatory: boolean;
   is_active: boolean;
@@ -205,6 +207,7 @@ export function useAddBlockToJob() {
           source_block_id: block.id,
           evaluation_criteria: block.evaluation_criteria,
           reference_material: block.reference_material,
+          area: block.area,
         }])
         .select()
         .single();

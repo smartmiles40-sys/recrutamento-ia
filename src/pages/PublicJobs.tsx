@@ -10,7 +10,19 @@ interface PublicJob {
   area: string;
   created_at: string;
   required_skills: string[] | null;
+  is_talent_pool: boolean | null;
+  talent_pool_areas: string[] | null;
 }
+
+/**
+ * Um banco de talentos não pertence a uma área só: ele aceita todas as áreas
+ * que o recrutador ofereceu. Mostrar a área administrativa da vaga aqui daria a
+ * impressão errada de que só aquela área é aceita.
+ */
+const jobAreaLabel = (job: PublicJob) =>
+  job.is_talent_pool
+    ? (job.talent_pool_areas?.length ? job.talent_pool_areas.join(" • ") : "Todas as áreas")
+    : job.area;
 
 export default function PublicJobs() {
   const [jobs, setJobs] = useState<PublicJob[]>([]);
@@ -21,7 +33,7 @@ export default function PublicJobs() {
     const fetchJobs = async () => {
       const { data } = await supabase
         .from("jobs")
-        .select("id, title, area, created_at, required_skills")
+        .select("id, title, area, created_at, required_skills, is_talent_pool, talent_pool_areas")
         .eq("status", "active")
         .order("created_at", { ascending: false });
       setJobs(data || []);
@@ -30,10 +42,15 @@ export default function PublicJobs() {
     fetchJobs();
   }, []);
 
+  // Buscar por "Tecnologia" precisa achar o banco de talentos que aceita
+  // Tecnologia, mesmo que a área administrativa dele seja outra.
+  const searchableAreas = (j: PublicJob) =>
+    (j.is_talent_pool && j.talent_pool_areas?.length ? j.talent_pool_areas : [j.area]).join(" ");
+
   const filteredJobs = jobs.filter(
     (j) =>
       j.title.toLowerCase().includes(search.toLowerCase()) ||
-      j.area.toLowerCase().includes(search.toLowerCase())
+      searchableAreas(j).toLowerCase().includes(search.toLowerCase())
   );
 
   const areas = [...new Set(jobs.map((j) => j.area))];
@@ -259,7 +276,7 @@ export default function PublicJobs() {
                       >
                         <span className="flex items-center gap-1">
                           <MapPin style={{ width: 13, height: 13 }} />
-                          {job.area}
+                          {jobAreaLabel(job)}
                         </span>
                       </div>
 

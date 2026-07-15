@@ -13,6 +13,10 @@ export interface DbJob {
   min_technical_score: number;
   practical_case: string | null;
   culture_rejection_enabled: boolean;
+  /** Vaga guarda-chuva: o candidato escolhe a área e o cargo de interesse. */
+  is_talent_pool: boolean;
+  /** Áreas ofertadas ao candidato. Vazio = todas as áreas ativas. */
+  talent_pool_areas: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;

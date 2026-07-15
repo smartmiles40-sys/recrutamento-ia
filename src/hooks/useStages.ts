@@ -14,6 +14,8 @@ export interface DbStage {
   min_score: number | null;
   evaluation_criteria: string | null;
   reference_material: string | null;
+  /** Bloco exclusivo de uma área. null = aparece para todos os candidatos. */
+  area: string | null;
   created_at: string;
 }
 
