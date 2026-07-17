@@ -72,6 +72,20 @@ interface QuestionData {
   question_order: number;
 }
 
+// Banco de Talentos: a área e o cargo de interesse são uma lista fixa definida
+// pela liderança. Ficam no código para o formulário funcionar sem depender de
+// configuração no banco — o candidato escolhe uma área e um cargo.
+const AREA_OPTIONS: { value: string; label: string }[] = [
+  { value: "Operações", label: "Operações" },
+  { value: "Marketing", label: "Marketing" },
+  // Guardamos "Relacionamento" (nome da área no banco, que casa com os blocos de
+  // perguntas dessa área) e mostramos o rótulo amigável para o candidato.
+  { value: "Relacionamento", label: "Relacionamento com cliente" },
+];
+
+// "Outros" abre um campo para a pessoa escrever o cargo.
+const CARGO_OPTIONS = ["Analista", "Assistente", "Outros"];
+
 function PublicApplicationFormInner() {
   const { jobId } = useParams<{ jobId: string }>();
   const [job, setJob] = useState<JobData | null>(null);
@@ -90,12 +104,17 @@ function PublicApplicationFormInner() {
   const [questionFiles, setQuestionFiles] = useState<Record<string, File | null>>({});
   const [lgpdConsent, setLgpdConsent] = useState(false);
   const [lgpdError, setLgpdError] = useState(false);
-  // Talent pool: the candidate picks their area and types the role they want.
-  const [areaOptions, setAreaOptions] = useState<string[]>([]);
+  // Talent pool: the candidate picks their area and role.
   const [desiredArea, setDesiredArea] = useState("");
-  const [desiredRole, setDesiredRole] = useState("");
+  const [desiredRole, setDesiredRole] = useState("");        // opção escolhida no select de cargo
+  const [desiredRoleOther, setDesiredRoleOther] = useState(""); // texto livre quando escolhe "Outros"
   const [talentPoolError, setTalentPoolError] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Cargo final: quando é "Outros", vale o texto que a pessoa escreveu.
+  const effectiveRole = (desiredRole === "Outros" ? desiredRoleOther : desiredRole).trim();
+  // Rótulo amigável da área escolhida (ex.: "Relacionamento" → "Relacionamento com cliente").
+  const areaLabel = AREA_OPTIONS.find((a) => a.value === desiredArea)?.label ?? desiredArea;
 
   const sanitizeFileName = (name: string) =>
     name
@@ -117,22 +136,6 @@ function PublicApplicationFormInner() {
 
       if (!jobData) { setLoading(false); return; }
       setJob(jobData as JobData);
-
-      // Talent pool: offer the areas the recruiter picked, or every active area
-      // when none was picked.
-      if ((jobData as JobData).is_talent_pool) {
-        const picked = (jobData as JobData).talent_pool_areas ?? [];
-        if (picked.length > 0) {
-          setAreaOptions(picked);
-        } else {
-          const { data: areaData } = await supabase
-            .from("areas")
-            .select("name")
-            .eq("is_active", true)
-            .order("sort_order");
-          setAreaOptions((areaData ?? []).map((a: any) => a.name));
-        }
-      }
 
       const { data: stageData } = await supabase
         .from("job_stages")
@@ -266,7 +269,11 @@ function PublicApplicationFormInner() {
           return;
         }
         if (isBlank(desiredRole)) {
-          setTalentPoolError("Informe o cargo de interesse para continuar.");
+          setTalentPoolError("Escolha o cargo de interesse para continuar.");
+          return;
+        }
+        if (desiredRole === "Outros" && isBlank(desiredRoleOther)) {
+          setTalentPoolError("Escreva o cargo de interesse para continuar.");
           return;
         }
         setTalentPoolError(null);
@@ -311,7 +318,7 @@ function PublicApplicationFormInner() {
         lgpd_consent: true,
         lgpd_consent_date: new Date().toISOString(),
         desired_area: job?.is_talent_pool ? desiredArea || null : null,
-        desired_role: job?.is_talent_pool ? desiredRole.trim() || null : null,
+        desired_role: job?.is_talent_pool ? effectiveRole || null : null,
       } as any]);
     if (candidateError) throw candidateError;
 
@@ -362,8 +369,8 @@ function PublicApplicationFormInner() {
           jobId,
           // In a talent pool the CV is judged against what the candidate wants,
           // not against the job's own (administrative) title and area.
-          jobTitle: job!.is_talent_pool && desiredRole.trim()
-            ? `${job!.title} — ${desiredRole.trim()}`
+          jobTitle: job!.is_talent_pool && effectiveRole
+            ? `${job!.title} — ${effectiveRole}`
             : job!.title,
           jobArea: job!.is_talent_pool && desiredArea ? desiredArea : job!.area,
           requiredSkills: job!.required_skills,
@@ -446,7 +453,7 @@ function PublicApplicationFormInner() {
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold text-foreground">{job.title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {isTalentPool ? (desiredArea || "Escolha sua área de interesse para começar") : job.area}
+          {isTalentPool ? (areaLabel || "Escolha sua área de interesse para começar") : job.area}
         </p>
       </div>
 
@@ -478,20 +485,36 @@ function PublicApplicationFormInner() {
                       className={inputClass + " mt-2"}
                     >
                       <option value="">Selecione uma área...</option>
-                      {areaOptions.map((a) => <option key={a} value={a}>{a}</option>)}
+                      {AREA_OPTIONS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
                     </select>
                   </div>
 
                   <div className="rounded-lg border border-border bg-muted/30 p-4">
-                    <label className="text-sm font-semibold text-foreground">Cargo(s) de interesse *</label>
-                    <p className="mt-0.5 text-xs text-muted-foreground">Qual cargo você busca? Ex: Analista, Assistente, Coordenador, Júnior.</p>
-                    <input
+                    <label className="text-sm font-semibold text-foreground">Cargo de interesse *</label>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Qual cargo você busca?</p>
+                    <select
                       value={desiredRole}
-                      onChange={(e) => { setDesiredRole(e.target.value); setTalentPoolError(null); }}
-                      placeholder="Ex: Analista Júnior"
-                      maxLength={120}
+                      onChange={(e) => {
+                        setDesiredRole(e.target.value);
+                        // Trocou para outro cargo? limpa o texto livre do "Outros".
+                        if (e.target.value !== "Outros") setDesiredRoleOther("");
+                        setTalentPoolError(null);
+                      }}
                       className={inputClass + " mt-2"}
-                    />
+                    >
+                      <option value="">Selecione um cargo...</option>
+                      {CARGO_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    {desiredRole === "Outros" && (
+                      <input
+                        value={desiredRoleOther}
+                        onChange={(e) => { setDesiredRoleOther(e.target.value); setTalentPoolError(null); }}
+                        placeholder="Escreva o cargo de interesse"
+                        maxLength={120}
+                        className={inputClass + " mt-2"}
+                        autoFocus
+                      />
+                    )}
                   </div>
 
                   {talentPoolError && (
