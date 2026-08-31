@@ -14,6 +14,7 @@ import {
   useDeleteBlockQuestion,
 } from "@/hooks/useBlockTemplates";
 import { useAreaNames } from "@/hooks/useAreas";
+import { formatOptions, parseOptions, toStoredOptions } from "@/lib/questionOptions";
 import {
   ChevronDown, ChevronUp, Plus, X, Trash2, Copy, Download, Upload,
   ToggleLeft, ToggleRight, Library, Shield, Users, FileText,
@@ -374,6 +375,24 @@ function BlockLibrary() {
                               Obrigatória
                             </label>
                           </div>
+                          {/* Múltipla escolha sem opções vira, no formulário, um campo de texto —
+                              por isso as opções se escrevem aqui, na própria pergunta. */}
+                          {q.field_type === "select" && (
+                            <div className="mt-1.5">
+                              <input
+                                key={formatOptions(q.options)}
+                                defaultValue={formatOptions(q.options)}
+                                onBlur={(e) => updateQuestion.mutate({ id: q.id, options: toStoredOptions(e.target.value) })}
+                                placeholder="Opções separadas por vírgula (ex: Sim, Não)"
+                                className="h-7 w-full rounded border border-input bg-background px-2 text-[11px] text-foreground"
+                              />
+                              {parseOptions(q.options).length === 0 && (
+                                <p className="mt-1 text-[10px] font-medium text-destructive">
+                                  Sem opções cadastradas: essa pergunta aparece como campo de texto para o candidato.
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <button onClick={() => deleteQuestion.mutate(q.id)} className="rounded p-1 text-muted-foreground hover:text-destructive">
                           <X className="h-3.5 w-3.5" />

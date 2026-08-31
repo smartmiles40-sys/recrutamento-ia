@@ -7,6 +7,7 @@ import FileUpload from "@/components/shared/FileUpload";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { stageMatchesArea } from "@/lib/talentPool";
+import { parseOptions } from "@/lib/questionOptions";
 
 // Error Boundary to prevent white screen crashes
 class FormErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -83,8 +84,17 @@ const AREA_OPTIONS: { value: string; label: string }[] = [
   { value: "Relacionamento", label: "Relacionamento com cliente" },
 ];
 
+// Canal de LGPD (acesso/correção/exclusão de dados). O mesmo da Política de
+// Privacidade em /privacidade — se mudar lá, mude aqui.
+const LGPD_EMAIL = "atendimento@agenciasetuforeuvou.com";
+
 // "Outros" abre um campo para a pessoa escrever o cargo.
 const CARGO_OPTIONS = ["Analista", "Assistente", "Outros"];
+
+/** O banco ainda não tem essa coluna? (PostgREST: PGRST204, Postgres: 42703) */
+const isUnknownColumnError = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === "PGRST204" || error.code === "42703" ||
+    /column .* does not exist|Could not find the .* column/i.test(error.message || ""));
 
 function PublicApplicationFormInner() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -104,6 +114,9 @@ function PublicApplicationFormInner() {
   const [questionFiles, setQuestionFiles] = useState<Record<string, File | null>>({});
   const [lgpdConsent, setLgpdConsent] = useState(false);
   const [lgpdError, setLgpdError] = useState(false);
+  // Aceite opcional, separado do obrigatorio: guardar os dados para futuras
+  // oportunidades. Nao bloqueia a candidatura.
+  const [futureConsent, setFutureConsent] = useState(false);
   // Talent pool: the candidate picks their area and role.
   const [desiredArea, setDesiredArea] = useState("");
   const [desiredRole, setDesiredRole] = useState("");        // opção escolhida no select de cargo
@@ -213,12 +226,23 @@ function PublicApplicationFormInner() {
         !["nome completo", "e-mail", "telefone"].includes(q.question_text.toLowerCase().trim()))
     : [];
 
+  // A etapa de currículo é fixa (o upload do CV), então o bloco de currículo
+  // nunca vira uma etapa própria — e as perguntas extras que o recrutador
+  // colocou nele não apareciam em lugar nenhum. Agora elas aparecem logo abaixo
+  // do envio do currículo. As do tipo Upload ficam de fora: seriam um segundo
+  // "anexe seu currículo" em cima do envio que a etapa já faz.
+  const cvStage = stages.find(s => s.stage_key === "cv_upload");
+  const cvExtraQuestions = cvStage
+    ? questions.filter(q => q.stage_id === cvStage.id && q.field_type !== "upload")
+    : [];
+
   // Only what the candidate actually sees gets saved. Someone who answers one
   // area, goes back and switches to another leaves stale answers in formData —
   // those must not reach the database.
   const visibleQuestionIds = new Set<string>([
     ...questionStages.flatMap(s => questions.filter(q => q.stage_id === s.id).map(q => q.id)),
     ...applicationExtraQuestions.map(q => q.id),
+    ...cvExtraQuestions.map(q => q.id),
   ]);
 
   // Add DISC step at the end if DISC stage is enabled
@@ -263,6 +287,11 @@ function PublicApplicationFormInner() {
 
   const handleNext = async () => {
     try {
+      if (currentStep?.type === "details" && !lgpdConsent) {
+        setLgpdError(true);
+        return;
+      }
+
       if (currentStep?.type === "details" && job?.is_talent_pool) {
         if (isBlank(desiredArea)) {
           setTalentPoolError("Escolha a área de interesse para continuar.");
@@ -305,21 +334,30 @@ function PublicApplicationFormInner() {
     }
 
     // Create candidate
-    const { error: candidateError } = await supabase
+    const candidateRow: Record<string, any> = {
+      id: candidateId,
+      job_id: jobId,
+      name: formData.name || "Sem nome",
+      email: formData.email || "sem@email.com",
+      phone: formData.phone || null,
+      cv_url: cvUrl,
+      status: "in_progress",
+      lgpd_consent: true,
+      lgpd_consent_date: new Date().toISOString(),
+      desired_area: job?.is_talent_pool ? desiredArea || null : null,
+      desired_role: job?.is_talent_pool ? effectiveRole || null : null,
+    };
+
+    // O aceite opcional mora numa coluna nova. Se o banco ainda não recebeu a
+    // migration, a candidatura não pode se perder por causa disso: repetimos o
+    // insert sem esse campo.
+    let { error: candidateError } = await supabase
       .from("candidates")
-      .insert([{
-        id: candidateId,
-        job_id: jobId,
-        name: formData.name || "Sem nome",
-        email: formData.email || "sem@email.com",
-        phone: formData.phone || null,
-        cv_url: cvUrl,
-        status: "in_progress",
-        lgpd_consent: true,
-        lgpd_consent_date: new Date().toISOString(),
-        desired_area: job?.is_talent_pool ? desiredArea || null : null,
-        desired_role: job?.is_talent_pool ? effectiveRole || null : null,
-      } as any]);
+      .insert([{ ...candidateRow, future_opportunities_consent: futureConsent } as any]);
+    if (candidateError && isUnknownColumnError(candidateError)) {
+      console.warn("Coluna future_opportunities_consent ausente — migration pendente.");
+      ({ error: candidateError } = await supabase.from("candidates").insert([candidateRow as any]));
+    }
     if (candidateError) throw candidateError;
 
     // Upload question files first
@@ -420,15 +458,72 @@ function PublicApplicationFormInner() {
 
   const inputClass = "h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
   const textareaClass = "min-h-[80px] w-full rounded-lg border border-input bg-background p-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
-  const hasMissingRequiredAnswers = (stageId: string) =>
-    questions
-      .filter((q) => q.stage_id === stageId && q.is_required)
+  const hasMissingRequired = (list: QuestionData[]) =>
+    list
+      .filter((q) => q.is_required)
       .some((q) => {
         if (q.field_type === "upload") {
           return !questionFiles[`qfile_${q.id}`];
         }
         return isBlank(formData[`q_${q.id}`]);
       });
+
+  const hasMissingRequiredAnswers = (stageId: string) =>
+    hasMissingRequired(questions.filter((q) => q.stage_id === stageId));
+
+  // Uma pergunta é desenhada do mesmo jeito em qualquer etapa. Antes cada etapa
+  // desenhava por conta própria e tipos como "Múltipla escolha" apareciam num
+  // lugar e não em outro.
+  const renderQuestionField = (q: QuestionData) => {
+    const options = parseOptions(q.options);
+
+    if (q.field_type === "textarea") {
+      return (
+        <textarea
+          value={formData[`q_${q.id}`] || ""}
+          onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
+          className={textareaClass}
+        />
+      );
+    }
+
+    if (q.field_type === "upload") {
+      return (
+        <FileUpload
+          accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,application/pdf,image/*"
+          label="Clique para enviar arquivo"
+          hint="Arraste ou clique para selecionar"
+          icon="file"
+          maxSizeMB={10}
+          onChange={(f) => setQuestionFiles(p => ({ ...p, [`qfile_${q.id}`]: f }))}
+        />
+      );
+    }
+
+    // Múltipla escolha sem opções cadastradas cai no campo de texto — melhor um
+    // campo aberto do que uma lista vazia na cara do candidato.
+    if (q.field_type === "select" && options.length > 0) {
+      return (
+        <select
+          value={formData[`q_${q.id}`] || ""}
+          onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
+          className={inputClass}
+        >
+          <option value="">Selecione...</option>
+          {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      );
+    }
+
+    return (
+      <input
+        type={q.field_type === "number" ? "number" : q.field_type === "url" ? "url" : "text"}
+        value={formData[`q_${q.id}`] || ""}
+        onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
+        className={inputClass}
+      />
+    );
+  };
 
   if (submitted) {
     return (
@@ -472,6 +567,66 @@ function PublicApplicationFormInner() {
               {job.intro_title || (isTalentPool ? "Banco de Talentos" : "Sobre a Vaga")}
             </h2>
             <p className="whitespace-pre-line text-sm text-muted-foreground">{job.intro_message || "Leia com atenção as informações abaixo antes de iniciar sua candidatura."}</p>
+
+            {/* Abertura + LGPD: iguais em TODOS os formulários, por isso ficam
+                aqui no código e não no texto de cada vaga. */}
+            <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed text-muted-foreground">
+              Esse formulário leva cerca de <strong className="font-semibold text-foreground">25 minutos</strong>. Não existe resposta certa e a gente
+              percebe quando o texto foi copiado de IA. Escreva com as suas palavras :).
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
+              <h3 className="text-sm font-semibold text-foreground">Sobre seus dados</h3>
+              <div className="mt-2 space-y-3 text-[13px] leading-relaxed text-muted-foreground">
+                <p>
+                  A Se Tu For, Eu Vou – Viagens coleta os dados deste formulário apenas para conduzir este
+                  processo seletivo. A base legal é a execução de procedimentos preliminares à contratação,
+                  prevista na LGPD (Lei 13.709/2018).
+                </p>
+                <p>
+                  Não compartilhamos seus dados com terceiros e não usamos suas respostas para nenhuma
+                  finalidade comercial. Mantemos seu material enquanto o processo seletivo estiver em andamento
+                  e pelo tempo necessário à sua finalidade. Caso você seja pré-selecionada, entraremos em
+                  contato para as próximas etapas.
+                </p>
+                <p>
+                  A qualquer momento você pode pedir acesso, correção ou exclusão dos seus dados pelo e-mail{" "}
+                  <a href={"mailto:" + LGPD_EMAIL} className="text-primary underline hover:opacity-80">{LGPD_EMAIL}</a>.
+                  Não peça nem envie neste formulário dados sensíveis como estado de saúde, religião, filiação
+                  política ou sindical, ou dados biométricos.
+                </p>
+              </div>
+
+              <div className="mt-4 space-y-3 border-t border-border pt-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={lgpdConsent}
+                    onChange={(e) => { setLgpdConsent(e.target.checked); if (e.target.checked) setLgpdError(false); }}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-primary accent-primary cursor-pointer"
+                  />
+                  <span className="text-[13px] leading-relaxed text-foreground">
+                    Li e concordo com o uso dos meus dados para este processo seletivo. *
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={futureConsent}
+                    onChange={(e) => setFutureConsent(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-primary accent-primary cursor-pointer"
+                  />
+                  <span className="text-[13px] leading-relaxed text-muted-foreground">
+                    Autorizo que meus dados sejam mantidos para futuras oportunidades na empresa. (opcional)
+                  </span>
+                </label>
+                {lgpdError && (
+                  <p className="text-sm font-medium text-destructive">
+                    Você precisa aceitar o uso dos seus dados para continuar.
+                  </p>
+                )}
+              </div>
+            </div>
 
             <div className="space-y-4">
               {isTalentPool ? (
@@ -589,29 +744,7 @@ function PublicApplicationFormInner() {
                     <label className="mb-1.5 block text-sm font-medium text-foreground">
                       {q.question_text}{q.is_required && " *"}
                     </label>
-                  {q.field_type === "textarea" ? (
-                    <textarea
-                      value={formData[`q_${q.id}`] || ""}
-                      onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
-                      className={textareaClass}
-                    />
-                  ) : q.field_type === "upload" ? (
-                    <FileUpload
-                      accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,application/pdf,image/*"
-                      label="Clique para enviar arquivo"
-                      hint="Arraste ou clique para selecionar"
-                      icon="file"
-                      maxSizeMB={10}
-                      onChange={(f) => setQuestionFiles(p => ({ ...p, [`qfile_${q.id}`]: f }))}
-                    />
-                  ) : (
-                      <input
-                        type={q.field_type === "url" ? "url" : "text"}
-                        value={formData[`q_${q.id}`] || ""}
-                        onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
-                        className={inputClass}
-                      />
-                    )}
+                    {renderQuestionField(q)}
                   </div>
                 ))}
               </div>
@@ -640,6 +773,18 @@ function PublicApplicationFormInner() {
               <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 p-4">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 <p className="text-sm text-foreground">Enviando currículo...</p>
+              </div>
+            )}
+            {cvExtraQuestions.length > 0 && (
+              <div className="space-y-4 border-t border-border pt-4">
+                {cvExtraQuestions.map((q) => (
+                  <div key={q.id}>
+                    <label className="mb-1.5 block text-sm font-medium text-foreground">
+                      {q.question_text}{q.is_required && " *"}
+                    </label>
+                    {renderQuestionField(q)}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -690,82 +835,11 @@ function PublicApplicationFormInner() {
                   <label className="mb-1.5 block text-sm font-medium text-foreground">
                     {q.question_text}{q.is_required && " *"}
                   </label>
-                  {q.field_type === "textarea" ? (
-                    <textarea
-                      value={formData[`q_${q.id}`] || ""}
-                      onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
-                      className={textareaClass}
-                    />
-                  ) : q.field_type === "upload" ? (
-                    <FileUpload
-                      accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,application/pdf,image/*"
-                      label="Clique para enviar arquivo"
-                      hint="Arraste ou clique para selecionar"
-                      icon="file"
-                      maxSizeMB={10}
-                      onChange={(f) => setQuestionFiles(p => ({ ...p, [`qfile_${q.id}`]: f }))}
-                    />
-                  ) : q.field_type === "select" && q.options ? (
-                    <select
-                      value={formData[`q_${q.id}`] || ""}
-                      onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
-                      className={inputClass}
-                    >
-                      <option value="">Selecione...</option>
-                      {(Array.isArray(q.options) ? q.options : []).map((o: string) => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  ) : q.field_type === "number" ? (
-                    <input
-                      type="number"
-                      value={formData[`q_${q.id}`] || ""}
-                      onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
-                      className={inputClass}
-                    />
-                  ) : (
-                    <input
-                      value={formData[`q_${q.id}`] || ""}
-                      onChange={(e) => setFormData(p => ({ ...p, [`q_${q.id}`]: e.target.value }))}
-                      className={inputClass}
-                    />
-                  )}
+                  {renderQuestionField(q)}
                 </div>
               ))}
             {questions.filter(q => q.stage_id === currentStep.stageId).length === 0 && (
               <p className="text-sm text-muted-foreground">Nenhuma pergunta configurada para esta etapa.</p>
-            )}
-          </div>
-        )}
-
-        {/* LGPD Consent - shown on last step */}
-        {step === totalSteps - 1 && (
-          <div className="mt-6 space-y-2">
-            <div className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                id="lgpd-consent"
-                checked={lgpdConsent}
-                onChange={(e) => {
-                  setLgpdConsent(e.target.checked);
-                  if (e.target.checked) setLgpdError(false);
-                }}
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-primary accent-primary cursor-pointer"
-              />
-              <label htmlFor="lgpd-consent" className="text-[13px] leading-relaxed text-muted-foreground cursor-pointer" style={{ fontFamily: 'Inter, sans-serif' }}>
-                Li e concordo com a{" "}
-                <a
-                  href="/privacidade"
-                  target="_blank"
-                  className="text-primary underline hover:opacity-80"
-                >
-                  Política de Privacidade
-                </a>{" "}
-                da Se Tu For, Eu Vou e autorizo o uso dos meus dados pessoais para fins de recrutamento e seleção pelo período de 12 meses.
-              </label>
-            </div>
-            {lgpdError && (
-              <p className="text-sm text-destructive ml-7">
-                Você precisa aceitar a Política de Privacidade para continuar.
-              </p>
             )}
           </div>
         )}
@@ -781,7 +855,7 @@ function PublicApplicationFormInner() {
           {step < totalSteps - 1 ? (
             <button
               onClick={handleNext}
-              disabled={analyzing || (currentStep?.type === "cv" && !cvFile) || (currentStep?.type === "personal" && (!formData.name || !formData.email || !formData.phone)) || (currentStep?.type === "stage" && currentStep.stageId && hasMissingRequiredAnswers(currentStep.stageId))}
+              disabled={analyzing || (currentStep?.type === "cv" && (!cvFile || hasMissingRequired(cvExtraQuestions))) || (currentStep?.type === "personal" && (!formData.name || !formData.email || !formData.phone)) || (currentStep?.type === "stage" && currentStep.stageId && hasMissingRequiredAnswers(currentStep.stageId))}
               className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {analyzing && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -791,7 +865,9 @@ function PublicApplicationFormInner() {
             <button
               onClick={async () => {
                 if (!lgpdConsent) {
+                  // O aceite mora na primeira etapa — leva a pessoa de volta a ele.
                   setLgpdError(true);
+                  setStep(0);
                   return;
                 }
                 // If last step is DISC, upload DISC file first (if provided) then submit
