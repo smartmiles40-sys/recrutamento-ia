@@ -12,6 +12,7 @@ import {
 import { useCandidatesByJob } from "@/hooks/useCandidates";
 import { useAreaNames } from "@/hooks/useAreas";
 import { weightByArea } from "@/lib/talentPool";
+import { formatOptions, parseOptions, toStoredOptions } from "@/lib/questionOptions";
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Copy, Check, Plus, X, Trash2, ChevronDown, ChevronUp, Settings, RotateCcw, Library } from "lucide-react";
@@ -73,6 +74,9 @@ export default function JobConfig() {
   const [introTitle, setIntroTitle] = useState("Sobre a Vaga");
   const [introMessage, setIntroMessage] = useState("Leia com atenção as informações abaixo antes de iniciar sua candidatura.");
   const [discTestUrl, setDiscTestUrl] = useState("");
+  // Se a vaga é um Banco de Talentos (e quais áreas ela oferece) se decide na
+  // CRIAÇÃO da vaga (Vagas → Nova Vaga). Aqui a tela só lê esse valor: ele muda
+  // o que aparece (peso por área, "este bloco aparece para"), mas não se altera.
   const [isTalentPool, setIsTalentPool] = useState(false);
   const [poolAreas, setPoolAreas] = useState<string[]>([]);
   const [initializedFor, setInitializedFor] = useState<string | null>(null);
@@ -97,9 +101,6 @@ export default function JobConfig() {
     setPoolAreas(job.talent_pool_areas ?? []);
     setInitializedFor(job.id);
   }, [job, initializedFor]);
-
-  const togglePoolArea = (area: string) =>
-    setPoolAreas((prev) => (prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]));
 
   const inputClass = "h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
   const applicationLink = jobId ? `${window.location.origin}/aplicar/${jobId}` : "";
@@ -167,8 +168,6 @@ export default function JobConfig() {
       intro_title: introTitle || (isTalentPool ? "Banco de Talentos" : "Sobre a Vaga"),
       intro_message: introMessage || "",
       disc_test_url: discTestUrl || null,
-      is_talent_pool: isTalentPool,
-      talent_pool_areas: isTalentPool ? poolAreas : [],
     } as any);
   };
 
@@ -237,54 +236,6 @@ export default function JobConfig() {
         {linkSection}
 
         <div className="space-y-6">
-          {/* Talent pool */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-            <h2 className="mb-4 font-display text-base font-bold text-foreground">Banco de Talentos</h2>
-            <label className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                checked={isTalentPool}
-                onChange={(e) => setIsTalentPool(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-input"
-              />
-              <span>
-                <span className="block text-sm font-medium text-foreground">Esta vaga é um Banco de Talentos</span>
-                <span className="block text-xs text-muted-foreground">
-                  O candidato escolhe a área de interesse e escreve o cargo que busca. Ele só responde os blocos da área que escolheu (mais os blocos sem área definida).
-                </span>
-              </span>
-            </label>
-
-            {isTalentPool && (
-              <div className="mt-4 border-t border-border pt-4">
-                <label className="mb-1.5 block text-sm font-medium text-foreground">Áreas oferecidas ao candidato</label>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  {poolAreas.length === 0 ? "Nenhuma marcada — todas as áreas serão oferecidas." : `${poolAreas.length} área(s) marcada(s).`}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {AREAS.map((a) => (
-                    <button
-                      key={a}
-                      type="button"
-                      onClick={() => togglePoolArea(a)}
-                      className={cn(
-                        "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-                        poolAreas.includes(a)
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {a}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Depois, em <strong>Blocos da Vaga</strong>, defina a área de cada bloco para escolher quem responde o quê.
-                </p>
-              </div>
-            )}
-          </div>
-
           {/* Intro Step Config */}
           <div className="rounded-xl border border-border bg-card p-5 shadow-card">
             <h2 className="mb-4 font-display text-base font-bold text-foreground">Etapa Inicial (Detalhes da Vaga)</h2>
@@ -557,6 +508,24 @@ export default function JobConfig() {
                                       Obrigatória
                                     </label>
                                   </div>
+                                  {/* Múltipla escolha sem opções vira, no formulário, um campo de texto —
+                                      por isso as opções se escrevem aqui, na própria pergunta. */}
+                                  {q.field_type === "select" && (
+                                    <div className="mt-1.5">
+                                      <input
+                                        key={formatOptions(q.options)}
+                                        defaultValue={formatOptions(q.options)}
+                                        onBlur={(e) => updateQuestion.mutate({ id: q.id, options: toStoredOptions(e.target.value) })}
+                                        placeholder="Opções separadas por vírgula (ex: Sim, Não)"
+                                        className="h-7 w-full rounded border border-input bg-background px-2 text-[11px] text-foreground"
+                                      />
+                                      {parseOptions(q.options).length === 0 && (
+                                        <p className="mt-1 text-[10px] font-medium text-destructive">
+                                          Sem opções cadastradas: essa pergunta aparece como campo de texto para o candidato.
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                                 <button onClick={() => deleteQuestion.mutate(q.id)} className="rounded p-1 text-muted-foreground hover:text-destructive">
                                   <X className="h-3.5 w-3.5" />

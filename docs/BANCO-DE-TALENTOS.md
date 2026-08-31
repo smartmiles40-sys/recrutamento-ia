@@ -28,7 +28,9 @@ Em **Vagas → Nova Vaga**:
 2. Marque **"É um Banco de Talentos"**.
 3. Marque as **áreas oferecidas ao candidato**. Nenhuma marcada = todas são oferecidas.
 
-Tudo isso continua editável depois, em **Configurar Vaga → Banco de Talentos**.
+Isso se define **só aqui, na criação da vaga**. A tela de Configurar Vaga não
+mostra mais essa opção — ela serve para configurar a vaga (blocos, pesos, etapa
+inicial e link).
 
 ---
 
